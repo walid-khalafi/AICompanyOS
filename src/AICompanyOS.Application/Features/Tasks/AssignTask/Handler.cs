@@ -1,3 +1,4 @@
+using AICompanyOS.Application.Common.Events;
 using AICompanyOS.Application.Common.Result;
 using AICompanyOS.Domain.Entities;
 using AICompanyOS.Domain.Repositories;
@@ -10,11 +11,13 @@ public sealed class AssignTaskHandler : IRequestHandler<AssignTaskCommand, Resul
 {
     private readonly ITaskRepository _taskRepository;
     private readonly IAgentRepository _agentRepository;
+    private readonly IDomainEventDispatcher _dispatcher;
 
-    public AssignTaskHandler(ITaskRepository taskRepository, IAgentRepository agentRepository)
+    public AssignTaskHandler(ITaskRepository taskRepository, IAgentRepository agentRepository, IDomainEventDispatcher dispatcher)
     {
         _taskRepository = taskRepository;
         _agentRepository = agentRepository;
+        _dispatcher = dispatcher;
     }
 
     public async Task<Result> Handle(AssignTaskCommand request, CancellationToken cancellationToken)
@@ -40,6 +43,8 @@ public sealed class AssignTaskHandler : IRequestHandler<AssignTaskCommand, Resul
 
             _taskRepository.Update(task);
 
+            await _dispatcher.DispatchAsync(task.DomainEvents, cancellationToken);
+            task.ClearDomainEvents();
 
             return Result.Ok();
         }

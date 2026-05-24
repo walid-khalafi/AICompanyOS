@@ -2,6 +2,7 @@ using AICompanyOS.Application.Common.Result;
 using AICompanyOS.Domain.Entities;
 
 using AICompanyOS.Domain.Repositories;
+using AICompanyOS.Application.Common.Events;
 using AICompanyOS.Domain.ValueObjects;
 using FluentValidation;
 using MediatR;
@@ -11,10 +12,12 @@ namespace AICompanyOS.Application.Features.Tasks.CreateTask;
 public sealed class CreateTaskHandler : IRequestHandler<CreateTaskCommand, Result>
 {
     private readonly ITaskRepository _taskRepository;
+    private readonly IDomainEventDispatcher _dispatcher;
 
-    public CreateTaskHandler(ITaskRepository taskRepository)
+    public CreateTaskHandler(ITaskRepository taskRepository, IDomainEventDispatcher dispatcher)
     {
         _taskRepository = taskRepository;
+        _dispatcher = dispatcher;
     }
 
     public async Task<Result> Handle(CreateTaskCommand request, CancellationToken cancellationToken)
@@ -29,6 +32,9 @@ public sealed class CreateTaskHandler : IRequestHandler<CreateTaskCommand, Resul
 
 
             await _taskRepository.AddAsync(task, cancellationToken);
+
+            await _dispatcher.DispatchAsync(task.DomainEvents, cancellationToken);
+            task.ClearDomainEvents();
 
             return Result.Ok();
         }

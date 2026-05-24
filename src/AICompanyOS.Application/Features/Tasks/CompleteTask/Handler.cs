@@ -1,3 +1,4 @@
+using AICompanyOS.Application.Common.Events;
 using AICompanyOS.Application.Common.Result;
 using AICompanyOS.Domain.Repositories;
 using AICompanyOS.Domain.ValueObjects;
@@ -8,10 +9,12 @@ namespace AICompanyOS.Application.Features.Tasks.CompleteTask;
 public sealed class CompleteTaskHandler : IRequestHandler<CompleteTaskCommand, Result>
 {
     private readonly ITaskRepository _taskRepository;
+    private readonly IDomainEventDispatcher _dispatcher;
 
-    public CompleteTaskHandler(ITaskRepository taskRepository)
+    public CompleteTaskHandler(ITaskRepository taskRepository, IDomainEventDispatcher dispatcher)
     {
         _taskRepository = taskRepository;
+        _dispatcher = dispatcher;
     }
 
     public async Task<Result> Handle(CompleteTaskCommand request, CancellationToken cancellationToken)
@@ -28,6 +31,9 @@ public sealed class CompleteTaskHandler : IRequestHandler<CompleteTaskCommand, R
             task.Complete(request.CompletionResult);
 
             _taskRepository.Update(task);
+
+            await _dispatcher.DispatchAsync(task.DomainEvents, cancellationToken);
+            task.ClearDomainEvents();
 
             return Result.Ok();
         }

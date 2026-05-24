@@ -1,3 +1,4 @@
+using AICompanyOS.Application.Common.Events;
 using AICompanyOS.Application.Common.Result;
 using AICompanyOS.Domain.Entities;
 using AICompanyOS.Domain.Repositories;
@@ -10,13 +11,16 @@ public sealed class FileBugReportHandler : IRequestHandler<FileBugReportCommand,
 {
     private readonly IBugReportRepository _bugReportRepository;
     private readonly IAgentRepository _agentRepository;
+    private readonly IDomainEventDispatcher _dispatcher;
 
     public FileBugReportHandler(
         IBugReportRepository bugReportRepository,
-        IAgentRepository agentRepository)
+        IAgentRepository agentRepository,
+        IDomainEventDispatcher dispatcher)
     {
         _bugReportRepository = bugReportRepository;
         _agentRepository = agentRepository;
+        _dispatcher = dispatcher;
     }
 
     public async Task<Result> Handle(FileBugReportCommand request, CancellationToken cancellationToken)
@@ -38,6 +42,9 @@ public sealed class FileBugReportHandler : IRequestHandler<FileBugReportCommand,
 
             await _bugReportRepository.AddAsync(report, cancellationToken);
             _bugReportRepository.Update(report);
+
+            await _dispatcher.DispatchAsync(report.DomainEvents, cancellationToken);
+            report.ClearDomainEvents();
 
             return Result.Ok();
         }
