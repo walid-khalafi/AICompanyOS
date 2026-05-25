@@ -1,51 +1,68 @@
+using AICompanyOS.Application.Abstractions.Persistence;
+using AICompanyOS.Application.Common.Events;
+using AICompanyOS.Application.Common.Outbox;
 using AICompanyOS.Application.Common.Result;
-using AICompanyOS.Domain.Entities;
-using AICompanyOS.Domain.Repositories;
-using AICompanyOS.Domain.ValueObjects;
+using AICompanyOS.Application.Services;
 using MediatR;
 
 namespace AICompanyOS.Application.Features.Bugs.ResolveBugReport;
 
 public sealed class ResolveBugReportHandler : IRequestHandler<ResolveBugReportCommand, Result>
 {
-    private readonly IBugReportRepository _bugReportRepository;
-    private readonly IAgentRepository _agentRepository;
+    private readonly BugReportApplicationService _service;
+    private readonly IDomainEventDispatcher _dispatcher;
+    private readonly IOutboxWriter _outboxWriter;
+    private readonly IUnitOfWork _unitOfWork;
 
     public ResolveBugReportHandler(
-        IBugReportRepository bugReportRepository,
-        IAgentRepository agentRepository)
+        BugReportApplicationService service,
+        IDomainEventDispatcher dispatcher,
+        IOutboxWriter outboxWriter,
+        IUnitOfWork unitOfWork)
     {
-        _bugReportRepository = bugReportRepository;
-        _agentRepository = agentRepository;
+        _service = service;
+        _dispatcher = dispatcher;
+        _outboxWriter = outboxWriter;
+        _unitOfWork = unitOfWork;
     }
 
     public async Task<Result> Handle(ResolveBugReportCommand request, CancellationToken cancellationToken)
     {
+        await _unitOfWork.BeginTransactionAsync(cancellationToken);
+
         try
         {
-            var report = await _bugReportRepository
-                .GetByIdAsync(new BugReportId(request.BugReportId), cancellationToken);
+            var (serviceResult, report) = await _service.ResolveAsync(
+                request.BugReportId,
+                request.ResolvedByAgentId,
+                request.ResolutionNotes,
+                cancellationToken);
+
+            if (!serviceResult.IsSuccess)
+                return serviceResult;
 
             if (report is null)
-                return Result.Fail($"Bug report not found: {request.BugReportId}");
+                return Result.Fail("Bug report resolution produced no aggregate instance.");
 
-            var resolverAgent = await _agentRepository
-                .GetByIdAsync(new AgentId(request.ResolvedByAgentId), cancellationToken);
+            var occurredOnUtc = DateTime.UtcNow;
+            var outboxMessages = DomainEventOutboxMapper.MapToOutboxMessages(report.DomainEvents, occurredOnUtc);
+            if (outboxMessages.Count > 0)
+            {
+                await _outboxWriter.AddAsync(outboxMessages, cancellationToken);
+            }
 
-            if (resolverAgent is null)
-                return Result.Fail($"Resolver agent not found: {request.ResolvedByAgentId}");
+            await _dispatcher.DispatchAsync(report.DomainEvents, cancellationToken);
+            report.ClearDomainEvents();
 
-            // Business rules enforced in Domain.
-            report.Resolve(resolverAgent.Id, request.ResolutionNotes);
-
-            _bugReportRepository.Update(report);
-
+            await _unitOfWork.CommitAsync(cancellationToken);
             return Result.Ok();
         }
-        catch (Exception ex)
+        catch
         {
-            return Result.Fail(ex.Message);
+            await _unitOfWork.RollbackAsync(cancellationToken);
+            throw;
         }
     }
 }
+
 

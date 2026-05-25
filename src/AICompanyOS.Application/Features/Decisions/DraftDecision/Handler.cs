@@ -1,65 +1,41 @@
+using AICompanyOS.Application.Abstractions.Persistence;
 using AICompanyOS.Application.Common.Result;
-using AICompanyOS.Domain.Entities;
-using AICompanyOS.Domain.Repositories;
-using AICompanyOS.Domain.ValueObjects;
+using AICompanyOS.Application.Services;
 using MediatR;
 
 namespace AICompanyOS.Application.Features.Decisions.DraftDecision;
 
 public sealed class DraftDecisionHandler : IRequestHandler<DraftDecisionCommand, Result>
 {
-    private readonly IDecisionRepository _decisionRepository;
-    private readonly IMeetingRepository _meetingRepository;
-    private readonly IAgentRepository _agentRepository;
+    private readonly DecisionApplicationService _service;
+    private readonly IUnitOfWork _unitOfWork;
 
-    public DraftDecisionHandler(
-        IDecisionRepository decisionRepository,
-        IMeetingRepository meetingRepository,
-        IAgentRepository agentRepository)
+    public DraftDecisionHandler(DecisionApplicationService service, IUnitOfWork unitOfWork)
     {
-        _decisionRepository = decisionRepository;
-        _meetingRepository = meetingRepository;
-        _agentRepository = agentRepository;
+        _service = service;
+        _unitOfWork = unitOfWork;
     }
 
     public async Task<Result> Handle(DraftDecisionCommand request, CancellationToken cancellationToken)
     {
+        await _unitOfWork.BeginTransactionAsync(cancellationToken);
+
         try
         {
-            var draftingAgent = await _agentRepository
-                .GetByIdAsync(new AgentId(request.DraftingAgentId), cancellationToken);
-
-            if (draftingAgent is null)
-                return Result.Fail($"Drafting agent not found: {request.DraftingAgentId}");
-
-            MeetingId? relatedMeetingId = null;
-            if (request.RelatedMeetingId is not null)
-            {
-                var meeting = await _meetingRepository
-                    .GetByIdAsync(new MeetingId(request.RelatedMeetingId.Value), cancellationToken);
-
-                if (meeting is null)
-                    return Result.Fail($"Related meeting not found: {request.RelatedMeetingId.Value}");
-
-                relatedMeetingId = meeting.Id;
-            }
-
-            // Business rules for role authorization belong to Domain.
-            var decision = Decision.Draft(
+            return await _service.DraftAsync(
                 request.Subject,
-                draftingAgent.Id,
+                request.DraftingAgentId,
                 request.DraftingAgentRole,
-                relatedMeetingId);
-
-            await _decisionRepository.AddAsync(decision, cancellationToken);
-            _decisionRepository.Update(decision);
-
-            return Result.Ok();
+                request.RelatedMeetingId,
+                cancellationToken);
         }
-        catch (Exception ex)
+        catch
         {
-            return Result.Fail(ex.Message);
+            await _unitOfWork.RollbackAsync(cancellationToken);
+            throw;
         }
     }
 }
+
+
 

@@ -1,8 +1,15 @@
+using System.Threading;
+using System.Threading.Tasks;
 using MediatR;
 
 namespace AICompanyOS.Application.Common.Behaviors;
 
-public sealed class ValidationBehavior<TRequest, TResponse> : IPipelineBehavior<TRequest, TResponse>
+/// <summary>
+/// Authorization pipeline hook.
+/// Skeleton only: validates an authorization context exists conceptually.
+/// No integration with any auth provider.
+/// </summary>
+public sealed class AuthorizationBehavior<TRequest, TResponse> : IPipelineBehavior<TRequest, TResponse>
     where TRequest : IRequest<TResponse>
 {
     public async Task<TResponse> Handle(
@@ -10,10 +17,12 @@ public sealed class ValidationBehavior<TRequest, TResponse> : IPipelineBehavior<
         RequestHandlerDelegate<TResponse> next,
         CancellationToken cancellationToken)
     {
-        // Placeholder scaffold; FluentValidation integration comes in Phase 1.
+        // Skeleton only.
+        // If/when request context carries an auth principal/claims, this is the place
+        // to validate it exists and apply future role-based rules.
         _ = request;
 
-        var operationName = typeof(TRequest).Name + ":Validation";
+        var operationName = typeof(TRequest).Name;
         if (request is IExecutionTracerAccessor accessor && accessor.Tracer is not null)
         {
             await accessor.Tracer.Start(operationName, cancellationToken);
@@ -38,5 +47,4 @@ public sealed class ValidationBehavior<TRequest, TResponse> : IPipelineBehavior<
         }
     }
 }
-
 

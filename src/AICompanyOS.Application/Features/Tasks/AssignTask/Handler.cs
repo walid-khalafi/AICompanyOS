@@ -1,51 +1,67 @@
+using AICompanyOS.Application.Abstractions.Persistence;
+using AICompanyOS.Application.Common.Events;
+using AICompanyOS.Application.Common.Outbox;
 using AICompanyOS.Application.Common.Result;
-using AICompanyOS.Domain.Entities;
+
 using AICompanyOS.Domain.Repositories;
-using MediatR;
 using AICompanyOS.Domain.ValueObjects;
+using AICompanyOS.Application.Services;
+using MediatR;
 
 namespace AICompanyOS.Application.Features.Tasks.AssignTask;
 
 public sealed class AssignTaskHandler : IRequestHandler<AssignTaskCommand, Result>
 {
-    private readonly ITaskRepository _taskRepository;
-    private readonly IAgentRepository _agentRepository;
+    private readonly TaskApplicationService _service;
+    private readonly IDomainEventDispatcher _dispatcher;
+    private readonly IOutboxWriter _outboxWriter;
+    private readonly IUnitOfWork _unitOfWork;
 
-    public AssignTaskHandler(ITaskRepository taskRepository, IAgentRepository agentRepository)
+    public AssignTaskHandler(TaskApplicationService service, IDomainEventDispatcher dispatcher, IOutboxWriter outboxWriter, IUnitOfWork unitOfWork)
     {
-        _taskRepository = taskRepository;
-        _agentRepository = agentRepository;
+        _service = service;
+        _dispatcher = dispatcher;
+        _outboxWriter = outboxWriter;
+        _unitOfWork = unitOfWork;
     }
+
 
     public async Task<Result> Handle(AssignTaskCommand request, CancellationToken cancellationToken)
     {
+        await _unitOfWork.BeginTransactionAsync(cancellationToken);
+
         try
         {
-            var task = await _taskRepository.GetByIdAsync(new TaskId(request.TaskId), cancellationToken);
-            var agent = await _agentRepository.GetByIdAsync(new AgentId(request.AgentId), cancellationToken);
+            var (serviceResult, task) = await _service.AssignAsync(
+                request.TaskId,
+                request.AgentId,
+                cancellationToken);
+
+            if (!serviceResult.IsSuccess)
+                return serviceResult;
 
             if (task is null)
+                return Result.Fail("Task assignment produced no aggregate instance.");
+
+            var occurredOnUtc = DateTime.UtcNow;
+            var outboxMessages = DomainEventOutboxMapper.MapToOutboxMessages(task.DomainEvents, occurredOnUtc);
+            if (outboxMessages.Count > 0)
             {
-                return Result.Fail($"Task not found: {request.TaskId}");
+                await _outboxWriter.AddAsync(outboxMessages, cancellationToken);
             }
 
-            if (agent is null)
-            {
-                return Result.Fail($"Agent not found: {request.AgentId}");
-            }
+            await _dispatcher.DispatchAsync(task.DomainEvents, cancellationToken);
+            task.ClearDomainEvents();
 
-            // Business rules enforced in Domain aggregate method.
-            task.AssignTo(agent.Id, agent.GetTaskAcceptanceEligibility());
-
-
-            _taskRepository.Update(task);
+            await _unitOfWork.CommitAsync(cancellationToken);
 
 
             return Result.Ok();
         }
-        catch (Exception ex)
+        catch
         {
-            return Result.Fail(ex.Message);
+            await _unitOfWork.RollbackAsync(cancellationToken);
+            throw;
         }
     }
 }
