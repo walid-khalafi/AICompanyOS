@@ -1,55 +1,41 @@
+using AICompanyOS.Application.Abstractions.Persistence;
 using AICompanyOS.Application.Common.Result;
-using AICompanyOS.Domain.Enums;
-using AICompanyOS.Domain.Repositories;
-using AICompanyOS.Domain.ValueObjects;
+using AICompanyOS.Application.Services;
 using MediatR;
-
 
 namespace AICompanyOS.Application.Features.Decisions.FinalizeDecision;
 
-
 public sealed class FinalizeDecisionHandler : IRequestHandler<FinalizeDecisionCommand, Result>
 {
-    private readonly IDecisionRepository _decisionRepository;
-    private readonly IAgentRepository _agentRepository;
+    private readonly DecisionApplicationService _service;
+    private readonly IUnitOfWork _unitOfWork;
 
-    public FinalizeDecisionHandler(
-        IDecisionRepository decisionRepository,
-        IAgentRepository agentRepository)
+    public FinalizeDecisionHandler(DecisionApplicationService service, IUnitOfWork unitOfWork)
     {
-        _decisionRepository = decisionRepository;
-        _agentRepository = agentRepository;
+        _service = service;
+        _unitOfWork = unitOfWork;
     }
 
     public async Task<Result> Handle(FinalizeDecisionCommand request, CancellationToken cancellationToken)
     {
+        await _unitOfWork.BeginTransactionAsync(cancellationToken);
+
         try
         {
-            var decision = await _decisionRepository.GetByIdAsync(new DecisionId(request.DecisionId), cancellationToken);
-            if (decision is null)
-                return Result.Fail($"Decision not found: {request.DecisionId}");
-
-            var finalizingAgent = await _agentRepository.GetByIdAsync(new AgentId(request.FinalizingAgentId), cancellationToken);
-            if (finalizingAgent is null)
-                return Result.Fail($"Finalizing agent not found: {request.FinalizingAgentId}");
-
-            // Domain enforces authorization + immutability.
-            var outcome = new DecisionOutcome(request.Verdict, request.Reasoning);
-
-            decision.Finalize(
-                outcome,
-                finalizingAgent.Id,
-                (AgentRole)request.FinalizingAgentRole);
-
-
-            _decisionRepository.Update(decision);
-
-            return Result.Ok();
+            return await _service.FinalizeAsync(
+                request.DecisionId,
+                request.FinalizingAgentId,
+                request.FinalizingAgentRole,
+                request.Verdict,
+                request.Reasoning,
+                cancellationToken);
         }
-        catch (Exception ex)
+        catch
         {
-            return Result.Fail(ex.Message);
+            await _unitOfWork.RollbackAsync(cancellationToken);
+            throw;
         }
     }
 }
+
 

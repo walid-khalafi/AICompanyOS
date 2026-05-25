@@ -1,41 +1,37 @@
+using AICompanyOS.Application.Abstractions.Persistence;
 using AICompanyOS.Application.Common.Result;
-using AICompanyOS.Domain.Repositories;
-using AICompanyOS.Domain.ValueObjects;
+using AICompanyOS.Application.Services;
 using MediatR;
 
 namespace AICompanyOS.Application.Features.Meetings.ConcludeMeeting;
 
 public sealed class ConcludeMeetingHandler : IRequestHandler<ConcludeMeetingCommand, Result>
 {
-    private readonly IMeetingRepository _meetingRepository;
+    private readonly MeetingApplicationService _service;
+    private readonly IUnitOfWork _unitOfWork;
 
-    public ConcludeMeetingHandler(IMeetingRepository meetingRepository)
+    public ConcludeMeetingHandler(MeetingApplicationService service, IUnitOfWork unitOfWork)
     {
-        _meetingRepository = meetingRepository;
+        _service = service;
+        _unitOfWork = unitOfWork;
     }
 
     public async Task<Result> Handle(ConcludeMeetingCommand request, CancellationToken cancellationToken)
     {
+        await _unitOfWork.BeginTransactionAsync(cancellationToken);
+
         try
         {
-            var meeting = await _meetingRepository.GetByIdAsync(new MeetingId(request.MeetingId), cancellationToken);
-            if (meeting is null)
-            {
-                return Result.Fail($"Meeting not found: {request.MeetingId}");
-            }
-
-            // Business rules enforced in Domain aggregate method.
-            meeting.Conclude(request.Summary);
-
-            _meetingRepository.Update(meeting);
-
-            // Domain events dispatching is expected via existing integration abstraction.
-            return Result.Ok();
+            return await _service.ConcludeAsync(request.MeetingId, request.Summary, cancellationToken);
         }
-        catch (Exception ex)
+        catch
         {
-            return Result.Fail(ex.Message);
+            await _unitOfWork.RollbackAsync(cancellationToken);
+            throw;
         }
     }
 }
+
+
+
 

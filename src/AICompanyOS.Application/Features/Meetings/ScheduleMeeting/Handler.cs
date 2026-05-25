@@ -1,65 +1,41 @@
+using AICompanyOS.Application.Abstractions.Persistence;
 using AICompanyOS.Application.Common.Result;
-using AICompanyOS.Domain.Entities;
-using AICompanyOS.Domain.Repositories;
-using AICompanyOS.Domain.ValueObjects;
+using AICompanyOS.Application.Services;
 using MediatR;
 
 namespace AICompanyOS.Application.Features.Meetings.ScheduleMeeting;
 
 public sealed class ScheduleMeetingHandler : IRequestHandler<ScheduleMeetingCommand, Result>
 {
-    private readonly IMeetingRepository _meetingRepository;
-    private readonly IAgentRepository _agentRepository;
+    private readonly MeetingApplicationService _service;
+    private readonly IUnitOfWork _unitOfWork;
 
-    public ScheduleMeetingHandler(
-        IMeetingRepository meetingRepository,
-        IAgentRepository agentRepository)
+    public ScheduleMeetingHandler(MeetingApplicationService service, IUnitOfWork unitOfWork)
     {
-        _meetingRepository = meetingRepository;
-        _agentRepository = agentRepository;
+        _service = service;
+        _unitOfWork = unitOfWork;
     }
 
     public async Task<Result> Handle(ScheduleMeetingCommand request, CancellationToken cancellationToken)
     {
+        await _unitOfWork.BeginTransactionAsync(cancellationToken);
+
         try
         {
-            // Existence validation only (no business rules).
-            var organizer = await _agentRepository.GetByIdAsync(new AgentId(request.OrganizerAgentId), cancellationToken);
-            if (organizer is null)
-            {
-                return Result.Fail($"Organizer agent not found: {request.OrganizerAgentId}");
-            }
-
-            var participantIds = request.ParticipantAgentIds;
-
-            var participantAgentIds = new List<AgentId>(participantIds.Count);
-            foreach (var pid in participantIds)
-            {
-                var agent = await _agentRepository.GetByIdAsync(new AgentId(pid), cancellationToken);
-                if (agent is null)
-                {
-                    return Result.Fail($"Participant agent not found: {pid}");
-                }
-
-                participantAgentIds.Add(agent.Id);
-            }
-
-            // Business rules enforced in Domain Meeting.Schedule.
-            var meeting = Meeting.Schedule(
+            // Orchestration delegated to application service.
+            return await _service.ScheduleAsync(
                 request.Topic,
-                organizer.Id,
-                participantAgentIds);
-
-            await _meetingRepository.AddAsync(meeting, cancellationToken);
-
-            // Domain events dispatching is expected via existing integration abstraction
-            // (handled by pipeline/dispatcher in the Application layer).
-            return Result.Ok();
+                request.OrganizerAgentId,
+                request.ParticipantAgentIds,
+                cancellationToken);
         }
-        catch (Exception ex)
+        catch
         {
-            return Result.Fail(ex.Message);
+            await _unitOfWork.RollbackAsync(cancellationToken);
+            throw;
         }
     }
 }
+
+
 
