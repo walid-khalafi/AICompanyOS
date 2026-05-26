@@ -22,67 +22,55 @@ public sealed class DecisionApplicationService
         _agentRepository = agentRepository;
     }
 
-    public async Task<Result> DraftAsync(
+    public async Task<(Result Result, Decision? Decision)> DraftAsync(
         string subject,
         Guid draftingAgentId,
         AgentRole draftingAgentRole,
         Guid? relatedMeetingId,
         CancellationToken cancellationToken)
-
     {
         var draftingAgent = await _agentRepository.GetByIdAsync(new AgentId(draftingAgentId), cancellationToken);
-
         if (draftingAgent is null)
-            return Result.Fail($"Drafting agent not found: {draftingAgentId}");
+            return (Result.Fail($"Drafting agent not found: {draftingAgentId}"), null);
 
         MeetingId? meetingId = null;
         if (relatedMeetingId is not null)
         {
             var meeting = await _meetingRepository.GetByIdAsync(new MeetingId(relatedMeetingId.Value), cancellationToken);
             if (meeting is null)
-                return Result.Fail($"Related meeting not found: {relatedMeetingId.Value}");
+                return (Result.Fail($"Related meeting not found: {relatedMeetingId.Value}"), null);
 
             meetingId = meeting.Id;
         }
 
-
-        var decision = Decision.Draft(
-            subject,
-            draftingAgent.Id,
-            (AgentRole)draftingAgentRole,
-            meetingId);
+        var decision = Decision.Draft(subject, draftingAgent.Id, draftingAgentRole, meetingId);
 
         await _decisionRepository.AddAsync(decision, cancellationToken);
         _decisionRepository.Update(decision);
 
-        return Result.Ok();
+        return (Result.Ok(), decision);
     }
 
-    public async Task<Result> FinalizeAsync(
+    public async Task<(Result Result, Decision? Decision)> FinalizeAsync(
         Guid decisionId,
         Guid finalizingAgentId,
         AgentRole finalizingAgentRole,
         string verdict,
         string reasoning,
         CancellationToken cancellationToken)
-
     {
         var decision = await _decisionRepository.GetByIdAsync(new DecisionId(decisionId), cancellationToken);
-
         if (decision is null)
-            return Result.Fail($"Decision not found: {decisionId}");
+            return (Result.Fail($"Decision not found: {decisionId}"), null);
 
         var finalizingAgent = await _agentRepository.GetByIdAsync(new AgentId(finalizingAgentId), cancellationToken);
-
         if (finalizingAgent is null)
-            return Result.Fail($"Finalizing agent not found: {finalizingAgentId}");
+            return (Result.Fail($"Finalizing agent not found: {finalizingAgentId}"), null);
 
         var outcome = new DecisionOutcome(verdict, reasoning);
-
-        decision.Finalize(outcome, finalizingAgent.Id, (AgentRole)finalizingAgentRole);
+        decision.Finalize(outcome, finalizingAgent.Id, finalizingAgentRole);
         _decisionRepository.Update(decision);
 
-        return Result.Ok();
+        return (Result.Ok(), decision);
     }
 }
-
