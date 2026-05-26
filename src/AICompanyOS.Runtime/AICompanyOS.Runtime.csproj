@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <!--
+    AICompanyOS.Runtime has NO project references by design.
+    It is a fully isolated execution layer.
+    It must not depend on Domain, Application, Infrastructure, or any AI SDK.
+    AI provider integrations will be added in a future phase via abstractions only.
+  -->
+
+</Project>
